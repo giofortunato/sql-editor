@@ -51,30 +51,60 @@ def select_file():
 with st.sidebar:
     st.title("🗄️ Database Navigator")
     
-    st.subheader("Select Database")
-    
-    # Initialize session state for db_path
-    if "db_path" not in st.session_state:
-        st.session_state["db_path"] = None
-
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        if st.button("📂 Open File"):
-            selected_file = select_file()
-            if selected_file:
-                st.session_state["db_path"] = selected_file
-                st.rerun()
-    
-    selected_db_path = st.session_state["db_path"]
-
-    if selected_db_path:
-        st.success(f"Loaded: `{os.path.basename(selected_db_path)}`")
-        st.caption(f"Path: {selected_db_path}")
-        db_url = f"sqlite:///{selected_db_path}"
+    if IS_CLOUD:
+        st.subheader("Upload Database")
+        uploaded_db = st.file_uploader("Upload a SQLite .db file", type=["db", "sqlite", "sqlite3"])
+        
+        if uploaded_db:
+            # We need to save the uploaded file to a temporary location to use with SQLAlchemy
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp_file:
+                tmp_file.write(uploaded_db.getbuffer())
+                st.session_state["db_path"] = tmp_file.name
+                
+            st.success(f"Uploaded: `{uploaded_db.name}`")
+            db_url = f"sqlite:///{st.session_state['db_path']}"
+        else:
+            if st.session_state.get("db_path") and os.path.exists(st.session_state["db_path"]):
+                 db_url = f"sqlite:///{st.session_state['db_path']}"
+            else:
+                 st.info("Upload a database to start.")
+                 st.stop()
     else:
-        st.info("Please select a database file.")
-        st.stop()
+        st.subheader("Select Database")
+        
+        # Initialize session state for db_path
+        if "db_path" not in st.session_state:
+            st.session_state["db_path"] = None
 
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            if st.button("📂 Open File"):
+                selected_file = select_file()
+                if selected_file:
+                    st.session_state["db_path"] = selected_file
+                    st.rerun()
+        
+        selected_db_path = st.session_state["db_path"]
+
+        if selected_db_path:
+            if os.path.exists(selected_db_path):
+                st.success(f"Loaded: `{os.path.basename(selected_db_path)}`")
+                st.caption(f"Path: {selected_db_path}")
+                db_url = f"sqlite:///{selected_db_path}"
+            else:
+                st.error("Selected file not found. Please select again.")
+                st.session_state["db_path"] = None
+                st.stop()
+        else:
+            st.info("Please select a database file.")
+            st.stop()
+
+import os
+import tempfile
+import sys
+
+# Environment Detection
+IS_CLOUD = os.getenv("STREAMLIT_RUNTIME_ENV_CLOUD") == "true" or sys.platform not in ["darwin", "win32"]
 # Database Connection
 @st.cache_resource(ttl="1h") # clear cache if args change or after time
 def get_engine(db_url):
