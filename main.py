@@ -146,10 +146,10 @@ def get_tables(engine):
 def load_data(table_name, engine):
     with engine.connect() as conn:
         try:
-            # Fetch rowid as a standard column
-            query = text(f"SELECT rowid, * FROM {table_name}")
+            # Fetch rowid as a standard column with a unique alias to avoid collisions with 'id' or other columns
+            query = text(f"SELECT rowid AS __rowid__, * FROM {table_name}")
             df = pd.read_sql(query, conn)
-            # Do NOT set index to rowid, keep it as a column
+            # Do NOT set index to __rowid__, keep it as a column
             return df
         except Exception as e:
             # Fallback
@@ -162,8 +162,8 @@ def save_changes(table_name, original_df, edited_df, engine):
             # We assume 'rowid' column exists. 
             # If fallback load_data was used, we might rely on standard index (not handled here for simplicity, assuming rowid works)
             
-            if 'rowid' not in original_df.columns:
-                 st.error("Cannot save changes: 'rowid' column missing.")
+            if '__rowid__' not in original_df.columns:
+                 st.error("Cannot save changes: internal row identifier missing.")
                  return
 
             # Convert rowid to numeric, coercing errors (new rows might have empty strings or None)
@@ -171,15 +171,15 @@ def save_changes(table_name, original_df, edited_df, engine):
             
             # Helper to get valid rowids
             def get_ids(df):
-                return set(df['rowid'].dropna().astype(int))
+                return set(df['__rowid__'].dropna().astype(int))
 
             orig_ids = get_ids(original_df)
             
-            # For edited_df, we need to handle potential new rows where rowid is None/NaN
-            # We treat rows with valid rowid as "existing", others as "new"
+            # For edited_df, we need to handle potential new rows where __rowid__ is None/NaN
+            # We treat rows with valid __rowid__ as "existing", others as "new"
             
             # 1. Handle Deletions
-            # IDs in original but not in edited (looking at the 'rowid' column)
+            # IDs in original but not in edited (looking at the '__rowid__' column)
             # Note: edited_df might have NaN for rowids of new rows.
             current_ids = get_ids(edited_df)
             deleted_ids = orig_ids - current_ids
@@ -192,20 +192,20 @@ def save_changes(table_name, original_df, edited_df, engine):
                 conn.execute(delete_query)
             
             # 2. Handle Additions
-            # Rows in edited_df where rowid is NaN/None
-            # We check if rowid is null or not in orig_ids (though mostly null for new rows)
-            new_rows = edited_df[edited_df['rowid'].isna()]
+            # Rows in edited_df where __rowid__ is NaN/None
+            # We check if __rowid__ is null or not in orig_ids (though mostly null for new rows)
+            new_rows = edited_df[edited_df['__rowid__'].isna()]
             
             if not new_rows.empty:
-                # Prepare for insertion: drop 'rowid' column as SQLite assigns it
-                rows_to_insert = new_rows.drop(columns=['rowid'])
+                # Prepare for insertion: drop '__rowid__' column as SQLite assigns it
+                rows_to_insert = new_rows.drop(columns=['__rowid__'])
                 rows_to_insert.to_sql(table_name, conn, if_exists='append', index=False)
                 
             # 3. Handle Updates
             # IDs in both. Compare content.
             common_ids = orig_ids & current_ids
-            existing_rows_edited = edited_df[edited_df['rowid'].isin(common_ids)].set_index('rowid')
-            existing_rows_orig = original_df[original_df['rowid'].isin(common_ids)].set_index('rowid')
+            existing_rows_edited = edited_df[edited_df['__rowid__'].isin(common_ids)].set_index('__rowid__')
+            existing_rows_orig = original_df[original_df['__rowid__'].isin(common_ids)].set_index('__rowid__')
             
             changes_count = 0
             for rid in common_ids:
@@ -233,10 +233,10 @@ def save_changes(table_name, original_df, edited_df, engine):
                         set_clauses.append(f'"{col}" = :{clean_key}')
                     
                     set_clause = ", ".join(set_clauses)
-                    update_query = text(f'UPDATE "{table_name}" SET {set_clause} WHERE rowid = :rowid')
+                    update_query = text(f'UPDATE "{table_name}" SET {set_clause} WHERE rowid = :__rowid__')
                     
-                    # Add rowid to the bind params
-                    clean_update_data['rowid'] = rid
+                    # Add __rowid__ to the bind params
+                    clean_update_data['__rowid__'] = rid
                     
                     conn.execute(update_query, clean_update_data)
                     changes_count += 1
@@ -291,10 +291,10 @@ with tab_edit:
         # Load data
         df = load_data(selected_table, engine)
         
-        if 'rowid' in df.columns:
-            # Configure rowid to be disabled (read-only)
+        if '__rowid__' in df.columns:
+            # Configure __rowid__ to be disabled (read-only)
             column_config = {
-                "rowid": st.column_config.NumberColumn(
+                "__rowid__": st.column_config.NumberColumn(
                     "Row ID",
                     help="Internal ID (cannot be edited)",
                     disabled=True,
