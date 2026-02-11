@@ -2,6 +2,11 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, inspect, text
 import os
+import tempfile
+import sys
+
+# Environment Detection
+IS_CLOUD = os.getenv("STREAMLIT_RUNTIME_ENV_CLOUD") == "true" or sys.platform not in ["darwin", "win32"]
 
 # Page config
 st.set_page_config(
@@ -99,12 +104,6 @@ with st.sidebar:
             st.info("Please select a database file.")
             st.stop()
 
-import os
-import tempfile
-import sys
-
-# Environment Detection
-IS_CLOUD = os.getenv("STREAMLIT_RUNTIME_ENV_CLOUD") == "true" or sys.platform not in ["darwin", "win32"]
 # Database Connection
 @st.cache_resource(ttl="1h") # clear cache if args change or after time
 def get_engine(db_url):
