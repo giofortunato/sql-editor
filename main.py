@@ -58,22 +58,45 @@ with st.sidebar:
     
     if IS_CLOUD:
         st.subheader("Upload Database")
-        uploaded_db = st.file_uploader("Upload a SQLite .db file", type=["db", "sqlite", "sqlite3"])
+        uploaded_db = st.file_uploader("Upload a SQLite .db file", type=["db", "sqlite", "sqlite3"], key="db_uploader")
         
         if uploaded_db:
-            # We need to save the uploaded file to a temporary location to use with SQLAlchemy
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp_file:
-                tmp_file.write(uploaded_db.getbuffer())
-                st.session_state["db_path"] = tmp_file.name
-                
-            st.success(f"Uploaded: `{uploaded_db.name}`")
+            # Handle new file upload: only write to disk if it's new or missing
+            if "last_uploaded_file" not in st.session_state or st.session_state["last_uploaded_file"] != uploaded_db.name:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp_file:
+                    tmp_file.write(uploaded_db.getbuffer())
+                    st.session_state["db_path"] = tmp_file.name
+                    st.session_state["last_uploaded_file"] = uploaded_db.name
+                st.rerun() # Refresh to ensure engine is initialized with new path
+
             db_url = f"sqlite:///{st.session_state['db_path']}"
+            st.success(f"Loaded: `{uploaded_db.name}`")
+            
+            # Persistent download button for the current modified version
+            try:
+                with open(st.session_state["db_path"], "rb") as f:
+                    btn = st.download_button(
+                        label="📥 Download Modified DB",
+                        data=f,
+                        file_name=uploaded_db.name,
+                        mime="application/x-sqlite3",
+                        help="Scarica il database con tutte le modifiche apportate finora."
+                    )
+            except Exception as e:
+                st.error(f"Error preparing download: {e}")
+            
+            st.info("⚠️ Le modifiche sono temporanee. Scarica il file per salvarle permanentemente.")
         else:
-            if st.session_state.get("db_path") and os.path.exists(st.session_state["db_path"]):
-                 db_url = f"sqlite:///{st.session_state['db_path']}"
-            else:
-                 st.info("Upload a database to start.")
-                 st.stop()
+            # Clear state if file is removed
+            if "db_path" in st.session_state:
+                if st.session_state["db_path"] and os.path.exists(st.session_state["db_path"]):
+                    try: os.remove(st.session_state["db_path"])
+                    except: pass
+                st.session_state["db_path"] = None
+                st.session_state["last_uploaded_file"] = None
+            
+            st.info("Upload a database to start.")
+            st.stop()
     else:
         st.subheader("Select Database")
         
